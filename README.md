@@ -85,7 +85,13 @@ Don't worry, this will also run in the backup and migration script ☺️
 We are currently using the /authorize flow to generate an oauth2 access token for every user.
 
 -   This can probably be improved by just authenticating once as the admin.
--   Maybe there is another flow that needs no manual login via webbrowser, which would make this script able to run on a server.
+-   Maybe there is another flow that needs no manual login via webbrowser but instead server-to-server, which would make this script able to run on a server.
+
+**Handling of expired oauth2 token**
+
+It seems that imapsync will crash when the oauth2 token expires.
+
+-> Can this be handled and automatically refreshed while running?
 
 **Encrypt sensitive data locally**
 
