@@ -6,7 +6,7 @@ source ./.env
 set +a
 
 # Run OAuth2 refresh and capture its output (the raw access token)
-ACCESS_TOKEN=$(../../oauth2/ms.sh --client-id="$DESTINATION_CLIENT_ID" --tenant-id="$DESTINATION_TENANT_ID" --login="$DESTINATION_USER")
+ACCESS_TOKEN=$(../../oauth2/ms.sh --client-id="$DESTINATION_CLIENT_ID" --tenant-id="$DESTINATION_TENANT_ID" --login="$DESTINATION_USER" "$@")
 
 # Check if the OAuth2 refresh was successful
 if [ $? -ne 0 ] || [ -z "$ACCESS_TOKEN" ]; then

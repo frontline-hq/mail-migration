@@ -140,16 +140,62 @@ function get_access_code {
 
 function decode_jwt {
     local jwt=$1
-    local jwt_payload
-    jwt_payload=$(echo -n "$jwt" | cut -d'.' -f2 | base64 -d 2>/dev/null)
-    echo "$jwt_payload"
+    
+    log_debug "Entering decode_jwt function"
+    log_debug "Input JWT: ${jwt:0:20}..." # Show first 20 characters of JWT for privacy
+
+    # Decode the JWT using the provided jq snippet
+    local decoded_jwt
+    decoded_jwt=$(echo "$jwt" | jq -R 'split(".") | .[0],.[1] | @base64d | fromjson')
+    local jq_exit_code=$?
+    
+    log_debug "jq decode exit code: $jq_exit_code"
+    log_debug "Decoded JWT (first 100 chars): ${decoded_jwt:0:100}..."
+    
+    # Check if the decoding was successful
+    if [ $jq_exit_code -ne 0 ]; then
+        log_debug "Failed to decode JWT"
+        echo "Error: Failed to decode JWT" >&2
+        return 1
+    fi
+    
+    log_debug "Exiting decode_jwt function successfully"
+    echo "$decoded_jwt"
 }
 
 function get_jwt_expiry {
     local jwt=$1
-    local jwt_payload
-    jwt_payload=$(decode_jwt "$jwt")
-    echo "$jwt_payload" | jq -r '.exp'
+    
+    log_debug "Entering get_jwt_expiry function"
+
+    # Decode the JWT
+    local jwt_decoded
+    jwt_decoded=$(decode_jwt "$jwt")
+    local decode_exit_code=$?
+    
+    # Check if the decoding was successful
+    if [ $decode_exit_code -ne 0 ]; then
+        log_debug "JWT decoding failed in get_jwt_expiry"
+        return 1
+    fi
+    
+    # Extract the 'exp' field from the decoded JWT
+    local expiry
+    expiry=$(echo "$jwt_decoded" | jq -r '.exp // empty')
+    local jq_extract_exit_code=$?
+    
+    log_debug "jq extract exit code: $jq_extract_exit_code"
+    log_debug "Extracted expiry: $expiry"
+    
+    # Check if 'exp' was found
+    if [ -z "$expiry" ]; then
+        log_debug "'exp' field not found in JWT payload"
+        echo "Error: 'exp' field not found in JWT payload" >&2
+        return 1
+    fi
+    
+    log_debug "Exiting get_jwt_expiry function successfully"
+    echo "$expiry"
 }
 
 function store_token {
@@ -169,26 +215,35 @@ function store_token {
 }
 
 function get_access_token {
+    log_debug "Entering get_access_token function"
     log_debug "Attempting to get access token"
     local access_token_file="$STORE/access_token"
+    log_debug "Access token file path: $access_token_file"
     local current_time
     current_time=$(date +%s)
+    log_debug "Current time: $current_time"
 
     if [[ -f $access_token_file ]]; then
+        log_debug "Access token file exists"
         local access_token
         access_token=$(cat "$access_token_file")
+        log_debug "Access token retrieved from file"
         local expiry_time
         expiry_time=$(get_jwt_expiry "$access_token")
+        log_debug "JWT expiry time: $expiry_time"
         
         if [[ $current_time -lt $expiry_time ]]; then
             log_debug "Valid access token found"
+            log_debug "Returning access token"
             echo "$access_token"
         else
             log_debug "Access token has expired"
+            log_debug "Current time ($current_time) is greater than or equal to expiry time ($expiry_time)"
         fi
     else
-        log_debug "No access token file found"
+        log_debug "No access token file found at $access_token_file"
     fi
+    log_debug "Exiting get_access_token function"
 }
 
 function cleanup {

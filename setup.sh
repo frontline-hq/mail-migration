@@ -13,7 +13,7 @@ escape_quotes() {
 # Function to get yes/no input
 get_yes_no() {
     while true; do
-        read -p "$1 (y/n): " choice
+        read -e -p "$1 (y/n): " choice
         case $choice in
             [Yy]* ) return 0;;  # Yes
             [Nn]* ) return 1;;  # No
@@ -22,12 +22,39 @@ get_yes_no() {
     done
 }
 
+# Updated function to get input with default value and improved prompt
+get_input_with_default() {
+    local prompt="$1"
+    local default="$2"
+    local input
+
+    if [ -n "$default" ]; then
+        read -e -p "$prompt (Press Enter for $default): " input
+        echo "${input:-$default}"
+    else
+        read -e -p "$prompt: " input
+        echo "$input"
+    fi
+}
+
+# Initialize variables to store previous inputs
+prev_client_id=""
+prev_tenant_id=""
+prev_origin_host=""
+prev_origin_user=""
+prev_destination_host=""
+prev_destination_user=""
+
 # Check if migrations folder exists and contains subfolders
 if [ -d "./migrations" ] && [ "$(ls -A ./migrations)" ]; then
     if get_yes_no "The 'migrations' folder contains data. Do you want to start fresh and remove all contents?"; then
-        echo "Removing all contents from the 'migrations' folder..."
-        rm -rf ./migrations/*
-        echo "Contents removed. Starting fresh."
+        if get_yes_no "ARE YOUR SURE YOU WANT TO DELETE ALL PREVIOUS SETUPS?"; then
+            echo "Removing all contents from the 'migrations' folder..."
+            rm -rf ./migrations/*
+            echo "Contents removed. Starting fresh."
+        else
+            echo "Keeping existing contents in the 'migrations' folder."
+        fi
     else
         echo "Keeping existing contents in the 'migrations' folder."
     fi
@@ -116,12 +143,16 @@ get_input() {
     local origin_host origin_user origin_password destination_host destination_user destination_password
 
     # Collect destination client ID and tenant ID
-    read -p "Enter destination client ID: " destination_client_id
-    read -p "Enter destination tenant ID: " destination_tenant_id
+    destination_client_id=$(get_input_with_default "Enter destination client ID" "$prev_client_id")
+    destination_tenant_id=$(get_input_with_default "Enter destination tenant ID" "$prev_tenant_id")
+    prev_client_id="$destination_client_id"
+    prev_tenant_id="$destination_tenant_id"
 
     # Prompt for origin account details
     while true; do
-        read -p "Enter origin host: " origin_host
+        origin_host=$(get_input_with_default "Enter origin host" "$prev_origin_host")
+        prev_origin_host="$origin_host"
+
         if ! get_ssl_cert "$origin_host" "./migrations/temp_origin_cert.pem"; then
             if ! get_yes_no "SSL certificate retrieval or verification failed. Do you want to enter the origin host again?"; then
                 return 1
@@ -129,8 +160,10 @@ get_input() {
             continue
         fi
 
-        read -p "Enter origin user: " origin_user
-        read -s -p "Enter origin password: " origin_password
+        origin_user=$(get_input_with_default "Enter origin user" "$prev_origin_user")
+        prev_origin_user="$origin_user"
+
+        read -e -s -p "Enter origin password: " origin_password
         echo
 
         if check_imap_connection_password "$origin_host" "$origin_user" "$origin_password"; then
@@ -146,7 +179,9 @@ get_input() {
 
     # Prompt for destination account details
     while true; do
-        read -p "Enter destination host: " destination_host
+        destination_host=$(get_input_with_default "Enter destination host" "$prev_destination_host")
+        prev_destination_host="$destination_host"
+
         if ! get_ssl_cert "$destination_host" "./migrations/temp_destination_cert.pem"; then
             if ! get_yes_no "SSL certificate retrieval or verification failed. Do you want to enter the destination host again?"; then
                 return 1
@@ -154,7 +189,8 @@ get_input() {
             continue
         fi
 
-        read -p "Enter destination user: " destination_user
+        destination_user=$(get_input_with_default "Enter destination user" "$prev_destination_user")
+        prev_destination_user="$destination_user"
 
         # Create sanitized folder name
         origin_sanitized=$(sanitize "${origin_user}_${origin_host}")
@@ -163,6 +199,32 @@ get_input() {
 
         # Create the folder
         mkdir -p "./migrations/$folder_name"
+
+        # Move certificates
+        mv "./migrations/temp_origin_cert.pem" "./migrations/$folder_name/origin_host_cert.pem"
+        mv "./migrations/temp_destination_cert.pem" "./migrations/$folder_name/destination_host_cert.pem"
+
+        # Escape quotes in all variables
+        origin_host_escaped=$(escape_quotes "$origin_host")
+        origin_user_escaped=$(escape_quotes "$origin_user")
+        origin_password_escaped=$(escape_quotes "$origin_password")
+        destination_host_escaped=$(escape_quotes "$destination_host")
+        destination_user_escaped=$(escape_quotes "$destination_user")
+        destination_access_token_escaped=$(escape_quotes "$destination_access_token")
+
+        # Create .env file with escaped quotes
+        cat > "./migrations/$folder_name/.env" << EOL
+ORIGIN_HOST="$origin_host_escaped"
+ORIGIN_USER="$origin_user_escaped"
+ORIGIN_PASS="$origin_password_escaped"
+DESTINATION_HOST="$destination_host_escaped"
+DESTINATION_USER="$destination_user_escaped"
+DESTINATION_ACCESS_TOKEN="$destination_access_token_escaped"
+DESTINATION_CLIENT_ID="$destination_client_id"
+DESTINATION_TENANT_ID="$destination_tenant_id"
+EOL
+
+        echo "Configuration saved in ./migrations/$folder_name/.env"
 
         # Run OAuth2 script and capture its output
         echo "Running OAuth2 script..."
@@ -189,32 +251,6 @@ get_input() {
             fi
         fi
     done
-
-    # Move certificates
-    mv "./migrations/temp_origin_cert.pem" "./migrations/$folder_name/origin_host_cert.pem"
-    mv "./migrations/temp_destination_cert.pem" "./migrations/$folder_name/destination_host_cert.pem"
-
-    # Escape quotes in all variables
-    origin_host_escaped=$(escape_quotes "$origin_host")
-    origin_user_escaped=$(escape_quotes "$origin_user")
-    origin_password_escaped=$(escape_quotes "$origin_password")
-    destination_host_escaped=$(escape_quotes "$destination_host")
-    destination_user_escaped=$(escape_quotes "$destination_user")
-    destination_access_token_escaped=$(escape_quotes "$destination_access_token")
-
-    # Create .env file with escaped quotes
-    cat > "./migrations/$folder_name/.env" << EOL
-ORIGIN_HOST="$origin_host_escaped"
-ORIGIN_USER="$origin_user_escaped"
-ORIGIN_PASS="$origin_password_escaped"
-DESTINATION_HOST="$destination_host_escaped"
-DESTINATION_USER="$destination_user_escaped"
-DESTINATION_ACCESS_TOKEN="$destination_access_token_escaped"
-DESTINATION_CLIENT_ID="$destination_client_id"
-DESTINATION_TENANT_ID="$destination_tenant_id"
-EOL
-
-    echo "Configuration saved in ./migrations/$folder_name/.env"
 
     return 0
 }

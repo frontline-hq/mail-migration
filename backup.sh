@@ -29,9 +29,10 @@ for dir in */; do
         # Check if the offlineimap.conf file exists in the subfolder
         if [ -f "offlineimap.conf" ]; then
             echo "Executing offlineimap in $dir"
-            
+            NOW=`date +%Y_%m_%d_%H_%M_%S`
+            mkdir -p  ./offlineimap/logs/
             # Execute offlineimap with the configuration file
-            offlineimap -c ./offlineimap.conf
+            offlineimap -c ./offlineimap.conf -l ./offlineimap/logs/$NOW.txt
         else
             echo "offlineimap.conf not found in $dir"
         fi
