@@ -1,6 +1,19 @@
 # mail-migration
 
-A tool that handles IMAP mail migrations including a safe maildir backup
+A tool that handles IMAP mail migrations including a safe maildir backup.
+
+Capabilities:
+
+-   Automated setup using shell script
+-   Automatic mass backup of all [origin, destination] pairs from automatic setup (as maildir)
+-   Automatic mass migration of all [origin, destination] pairs from automatic setup
+-   Automatic Microsoft OAUTH2 handling
+-   Every backup and migration run is documented via log files
+
+Limitations:
+
+-   Can only backup mailboxes where the password doesnt contain '%' chars (but migration works!)
+-   Currently only set up to migrate from regular IMAPS to MICROSOFT IMAPS OAUTH2 mailboxes
 
 ## Prerequisites
 
