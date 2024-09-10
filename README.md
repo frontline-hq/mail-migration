@@ -13,6 +13,7 @@ Capabilities:
 Limitations:
 
 -   Can only backup mailboxes where the password doesnt contain '%' chars (but migration works!)
+-   Backups of oauth2 based imap authentication is not possible, but can be in the future
 -   Currently only set up to migrate from regular IMAPS to MICROSOFT IMAPS OAUTH2 mailboxes
 
 ## Prerequisites
