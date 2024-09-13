@@ -72,14 +72,19 @@ Execute backup.sh to create a backup of all set up origin accounts: `./backup.sh
 
 -> You can then find the backups in the `migrations/<sub-folder>/maildir-backup/` folder.
 
-**4. Run migration dry run**
+**4. Run migration setup**
+
+Execute setup-backup.sh: `./setup-migration.sh`.
+This will prepare the necessary files to migrate all mailboxes.
+
+**5. Run migration dry run**
 
 To verify the setup migrations, run the migration dry run: `./migration.sh --dry-run`.
 This will NOT change anything on either the origin or destination mailbox.
 
 -> Check the logs of this dry run in the `migrations/<sub-folder>/imapsync/logs/dry-run/` folder.
 
-**5. Run migration dry run**
+**6. Run migration**
 
 To execute the final migrations, run the migration: `./migration.sh`.
 This will sync all mails from origin to destination, with the following specs:

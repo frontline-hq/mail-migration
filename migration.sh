@@ -11,19 +11,6 @@ for arg in "$@"; do
     fi
 done
 
-# Set the path to the imapsync script based on the --dry-run argument
-if [ "$DRY_RUN" = true ]; then
-    IMAPSYNC_SCRIPT="./imapsync/dry-run.template.sh"
-else
-    IMAPSYNC_SCRIPT="./imapsync/run.template.sh"
-fi
-
-# Check if the imapsync script exists
-if [ ! -f "$IMAPSYNC_SCRIPT" ]; then
-    echo "Error: imapsync script not found at $IMAPSYNC_SCRIPT"
-    exit 1
-fi
-
 # Store the original directory
 ORIGINAL_DIR=$(pwd)
 
@@ -38,10 +25,23 @@ for migration_folder in ./migrations/*/; do
         
         # Source the environment variables
         source ".env"
+
+        # Set the path to the imapsync script based on the --dry-run argument
+        if [ "$DRY_RUN" = true ]; then
+            IMAPSYNC_SCRIPT="./imapsync/dry-run.sh"
+        else
+            IMAPSYNC_SCRIPT="./imapsync/run.sh"
+        fi
+
+        # Check if the imapsync script exists
+        if [ ! -f "$IMAPSYNC_SCRIPT" ]; then
+            echo "Error: imapsync script not found at $IMAPSYNC_SCRIPT"
+            exit 1
+        fi
         
         # Run the imapsync script with the sourced environment variables
         # Exclude --dry-run from the arguments passed to the imapsync script
-        bash "$ORIGINAL_DIR/$IMAPSYNC_SCRIPT" $(echo "$@" | sed 's/--dry-run//')
+        bash "$IMAPSYNC_SCRIPT" $(echo "$@" | sed 's/--dry-run//')
         
         # Change back to the original directory
         cd "$ORIGINAL_DIR" || exit
