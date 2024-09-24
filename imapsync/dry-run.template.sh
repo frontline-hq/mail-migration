@@ -5,8 +5,8 @@ set -a
 source ./.env
 set +a
 
-# Function to perform OAuth2 refresh
-perform_oauth2() {
+# Function to perform OAuth2 refresh with user authentication
+perform_oauth2_user() {
     local client_id=$1
     local tenant_id=$2
     local user=$3
@@ -14,15 +14,43 @@ perform_oauth2() {
     shift 4  # Shift past the known parameters
 
     # Run ms-with-env.sh with the provided parameters and any additional args
-    source ../../oauth2/ms-with-env.sh --client-id="$client_id" --tenant-id="$tenant_id" --user="$user" "$@"
+    source ../../oauth2/ms-with-env.sh --client-id="$client_id" --tenant-id="$tenant_id" --login="$user" --user="$user" "$@"
 
     if [ $? -ne 0 ] || [ -z "$ACCESS_TOKEN" ]; then
-        echo "OAuth2 refresh failed for $user. Please check your credentials and try again."
+        echo "OAuth2 refresh failed for user $user. Please check your credentials and try again."
         exit 1
     fi
 
     if [ -z "$REFRESH_TOKEN" ]; then
-        echo "Failed to read refresh token for $user."
+        echo "Failed to read refresh token for user $user."
+        exit 1
+    fi
+
+    mkdir -p ./imapsync
+    {
+        echo "$ACCESS_TOKEN"
+        echo "$REFRESH_TOKEN"
+    } > "$output_file"
+}
+
+# Function to perform OAuth2 refresh with client secret
+perform_oauth2_client_secret() {
+    local client_id=$1
+    local tenant_id=$2
+    local client_secret=$3
+    local output_file=$4
+    shift 4  # Shift past the known parameters
+
+    # Run ms-with-env.sh with the provided parameters and any additional args
+    source ../../oauth2/ms-with-env.sh --client-id="$client_id" --tenant-id="$tenant_id" --client-secret="$client_secret" --user="$user" "$@"
+
+    if [ $? -ne 0 ] || [ -z "$ACCESS_TOKEN" ]; then
+        echo "OAuth2 refresh failed using client secret. Please check your credentials and try again."
+        exit 1
+    fi
+
+    if [ -z "$REFRESH_TOKEN" ]; then
+        echo "Failed to read refresh token using client secret."
         exit 1
     fi
 
@@ -36,7 +64,11 @@ perform_oauth2() {
 # Prepare origin connection parameters
 ORIGIN_PARAMS=""
 if [ "$ORIGIN_CRED_TYPE" = "oauth2" ]; then
-    perform_oauth2 "$ORIGIN_CLIENT_ID" "$ORIGIN_TENANT_ID" "$ORIGIN_USER" "./imapsync/oauthaccesstoken1.txt" --store="./oauth2/origin" $ORIGIN_OAUTH_EXTRA_ARGS
+    if [ -n "$ORIGIN_CLIENT_SECRET" ]; then
+        perform_oauth2_client_secret "$ORIGIN_CLIENT_ID" "$ORIGIN_TENANT_ID" "$ORIGIN_CLIENT_SECRET" "./imapsync/oauthaccesstoken1.txt" --store="./oauth2/origin" $ORIGIN_OAUTH_EXTRA_ARGS
+    else
+        perform_oauth2_user "$ORIGIN_CLIENT_ID" "$ORIGIN_TENANT_ID" "$ORIGIN_USER" "./imapsync/oauthaccesstoken1.txt" --store="./oauth2/origin" $ORIGIN_OAUTH_EXTRA_ARGS
+    fi
     ORIGIN_PARAMS="--oauthaccesstoken1 ./imapsync/oauthaccesstoken1.txt"
 elif [ "$ORIGIN_CRED_TYPE" = "imaps" ]; then
     ORIGIN_PARAMS="--password1 $ORIGIN_SECRET"
@@ -48,7 +80,11 @@ fi
 # Prepare destination connection parameters
 DESTINATION_PARAMS=""
 if [ "$DESTINATION_CRED_TYPE" = "oauth2" ]; then
-    perform_oauth2 "$DESTINATION_CLIENT_ID" "$DESTINATION_TENANT_ID" "$DESTINATION_USER" "./imapsync/oauthaccesstoken2.txt" --store="./oauth2/destination" $DESTINATION_OAUTH_EXTRA_ARGS
+    if [ -n "$DESTINATION_CLIENT_SECRET" ]; then
+        perform_oauth2_client_secret "$DESTINATION_CLIENT_ID" "$DESTINATION_TENANT_ID" "$DESTINATION_CLIENT_SECRET" "./imapsync/oauthaccesstoken2.txt" --store="./oauth2/destination" $DESTINATION_OAUTH_EXTRA_ARGS
+    else
+        perform_oauth2_user "$DESTINATION_CLIENT_ID" "$DESTINATION_TENANT_ID" "$DESTINATION_USER" "./imapsync/oauthaccesstoken2.txt" --store="./oauth2/destination" $DESTINATION_OAUTH_EXTRA_ARGS
+    fi
     DESTINATION_PARAMS="--oauthaccesstoken2 ./imapsync/oauthaccesstoken2.txt"
 elif [ "$DESTINATION_CRED_TYPE" = "imaps" ]; then
     DESTINATION_PARAMS="--password2 $DESTINATION_SECRET"

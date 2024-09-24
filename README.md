@@ -30,6 +30,7 @@ Install the following applications:
 -   offlineimap3 [https://github.com/OfflineIMAP/offlineimap3](https://github.com/OfflineIMAP/offlineimap3) (not offlineimap!!)
 -   imapsync [https://github.com/imapsync/imapsync](https://github.com/imapsync/imapsync)
 -   jq [https://github.com/jqlang/jq](https://github.com/jqlang/jq)
+-   powershell (pwsh) [https://learn.microsoft.com/de-de/powershell/scripting/install/installing-powershell?view=powershell-7.4](https://learn.microsoft.com/de-de/powershell/scripting/install/installing-powershell?view=powershell-7.4)
 
 #### Mac OS
 
@@ -38,16 +39,28 @@ On Mac OS these are available via homebrew:
 -   offlineimap3 [https://formulae.brew.sh/formula/offlineimap](https://formulae.brew.sh/formula/offlineimap)
 -   imapsync [https://formulae.brew.sh/formula/imapsync](https://formulae.brew.sh/formula/imapsync)
 -   jq [https://formulae.brew.sh/formula/jq](https://formulae.brew.sh/formula/jq)
+-   powershell (pwsh) [https://github.com/PowerShell/Homebrew-Tap](https://github.com/PowerShell/Homebrew-Tap)
 
 ### Microsoft OAUTH2 requirements
 
-When migrating to microsoft oauth2, please make sure you have the following set up:
+When migrating to microsoft oauth2, please make sure you have the following set up (depending on your flow!!):
+
+#### /authorize flow
 
 -   IMAP App enabled in Exchange Admin Portal
 -   A "Mobile and desktop applications" (!!) App named "imapsync" created in Azure AD, with the following specs:
-    -   IMAP.AccessAsUser.All
+    -   Permissions -> Microsoft Graph -> IMAP.AccessAsUser.All
+    -   Grant admin consent on permissions!
     -   Of type: Mobile and desktop applications
     -   redirect url: http://localhost:8087
+
+#### /client-credentials flow
+
+-   IMAP App enabled in Exchange Admin Portal
+-   A "Mobile and desktop applications" (!!) App named "imapsync" created in Azure AD, with the following specs:
+    -   Permissions -> Office 365 Exchange Online -> IMAP.AccessAsApp
+    -   Grant admin consent on permissions!
+    -   Of type: Mobile and desktop applications
 
 ## Get Started
 

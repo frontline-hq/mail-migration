@@ -40,7 +40,7 @@ if [ -z "$CLIENT_ID" ] || [ -z "$TENANT_ID" ] || [ -z "$USER" ]; then
 fi
 
 # Run OAuth2 refresh and capture its output (the raw access token)
-ACCESS_TOKEN=$(../../oauth2/ms.sh --client-id="$CLIENT_ID" --tenant-id="$TENANT_ID" --login="$USER" $ADDITIONAL_ARGS)
+ACCESS_TOKEN=$(../../oauth2/ms.sh --client-id="$CLIENT_ID" --tenant-id="$TENANT_ID" --user="$USER" $ADDITIONAL_ARGS)
 
 # Check if the OAuth2 refresh was successful
 if [ $? -ne 0 ] || [ -z "$ACCESS_TOKEN" ]; then

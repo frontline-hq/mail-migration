@@ -4,6 +4,8 @@
 DEFAULTS_FILE="./setup-defaults.env"
 TEMPLATE_FILE="./setup.env.template"
 INPUTS_FILE="./setup.env"
+DESTINATION_OAUTH_STORE_TEMP="./oauth2-temp-destination"
+ORIGIN_OAUTH_STORE_TEMP="./oauth2-temp-origin"
 
 # Function to load defaults
 load_defaults() {
@@ -83,11 +85,16 @@ download_ca_bundle() {
     fi
 }
 
+# Use like this: $(indirect_expand "${BEGINNING_VAR_STRING}_VAR_ENDING")
+indirect_expand() {
+  eval echo \$${1}
+}
+
 # Function to get input with default value and save it
 get_input_with_default() {
     local prompt="$1"
     local var_name="$2"
-    local current_value="${!var_name}"
+    local current_value=$(indirect_expand "$var_name")
     local input
 
     if [ -n "$current_value" ]; then
@@ -110,7 +117,7 @@ get_input_with_default() {
 get_connection_type() {
     local prompt="$1"
     local var_name="$2"
-    local current_value="${!var_name}"
+    local current_value=$(indirect_expand "$var_name")
     local input
 
     while true; do
@@ -144,14 +151,15 @@ get_connection_type() {
 get_credential_type() {
     local prompt="$1"
     local var_name="$2"
-    local current_value="${!var_name}"
+    local current_value=$(indirect_expand "$var_name")
     local input
 
     while true; do
         echo "$prompt"
         echo "1) IMAPS"
-        echo "2) MS-OAuth2"
-        read -p "Enter your choice (1 for IMAPS, 2 for MS-OAuth2, press Enter for $current_value): " input
+        echo "2) MS-OAuth2 Authorize Flow"
+        echo "3) MS-OAuth2 Client Credentials Flow"
+        read -p "Enter your choice (1 for IMAPS, 2 for MS-OAuth2 Authorize Flow, 3 for MS-OAuth2 Client Credentials Flow, press Enter for $current_value): " input
         input=${input:-$current_value}
         case $input in
             1|imaps)
@@ -160,92 +168,32 @@ get_credential_type() {
                 echo "imaps"
                 return
                 ;;
-            2|ms-oauth2)
-                export "$var_name=ms-oauth2"
+            2|ms-oauth2-authorize-flow)
+                export "$var_name=ms-oauth2-authorize-flow"
                 save_inputs
-                echo "ms-oauth2"
+                echo "ms-oauth2-authorize-flow"
+                return
+                ;;
+            3|ms-oauth2-client-credentials-flow)
+                export "$var_name=ms-oauth2-client-credentials-flow"
+                save_inputs
+                echo "ms-oauth2-client-credentials-flow"
                 return
                 ;;
             *)
-                echo "Invalid input. Please enter 1 for IMAPS or 2 for MS-OAuth2."
+                echo "Invalid input. Please enter 1 for IMAPS, 2 for MS-OAuth2 Authorize Flow, or 3 for MS-OAuth2 Client Credentials Flow."
                 ;;
         esac
     done
 }
 
-# Function to check IMAP connection with password
-check_imap_connection_password() {
-    local host=$1
-    local port=$2
-    local user=$3
-    local pass=$4
-    local conn_type=$5
-
-    local ssl_option=""
-    if [ "$conn_type" = "STARTTLS" ]; then
-        ssl_option="-starttls imap"
-    fi
-
-    if { echo -e "A1 LOGIN \"$user\" \"$pass\""; sleep 2; echo "a logout"; sleep 1; } | openssl s_client $ssl_option -connect ${host}:${port} -crlf -quiet 2>/dev/null | grep -q "A1 OK"; then
-        return 0
-    else
-        echo "IMAP connection failed with password."
-        return 1
-    fi
-}
-
-# Function to check IMAP connection with OAuth2
-check_imap_connection_oauth2() {
-    local host=$1
-    local port=$2
-    local user=$3
-    local access_token=$4
-    local conn_type=$5
-
-    local ssl_option=""
-    if [ "$conn_type" = "STARTTLS" ]; then
-        ssl_option="-starttls imap"
-    fi
-
-    auth_string=$(printf "user=%s\1auth=Bearer %s\1\1" "$user" "$access_token" | base64 | tr -d '\n')
-    if { echo -e "A1 AUTHENTICATE XOAUTH2 \"$auth_string\""; sleep 2; echo "a logout"; sleep 1; } | openssl s_client $ssl_option -connect ${host}:${port} -crlf -quiet 2>/dev/null | grep -q "A1 OK"; then
-        return 0
-    else
-        echo "IMAP connection failed with OAuth2."
-        return 1
-    fi
-}
-
-# Function to check IMAP connection
-check_imap_connection() {
-    local host=$1
-    local port=$2
-    local user=$3
-    local cred_type=$4
-    local cred_value=$5
-    local conn_type=$6
-
-    echo "Checking imap connection..."
-
-    case $cred_type in
-        "imaps")
-            check_imap_connection_password "$host" "$port" "$user" "$cred_value" "$conn_type"
-            echo "Checked imap connection pass"
-            ;;
-        "ms-oauth2")
-            check_imap_connection_oauth2 "$host" "$port" "$user" "$cred_value" "$conn_type"
-            ;;
-        *)
-            echo "Unsupported credential type: $cred_type"
-            return 1
-            ;;
-    esac
-}
+source ./imap/utils.sh
 
 # Separate debug function
 debug_variable() {
     local var_name="$1"
-    echo "Debug: $var_name is set to ${!var_name}"
+    local var_value=$(indirect_expand "$var_name")
+    echo "Debug: $var_name is set to $var_value"
 }
 
 # Function to save secret to .env file
@@ -264,6 +212,13 @@ save_secret() {
 # Main input gathering function
 get_input() {
     local origin_cred_value destination_cred_value
+    local prev_origin_cred_type prev_destination_cred_type
+
+    # Load previous credential types if they exist
+    if [ -f "$INPUTS_FILE" ]; then
+        prev_origin_cred_type=$(grep "ORIGIN_CRED_TYPE=" "$INPUTS_FILE" | cut -d'=' -f2)
+        prev_destination_cred_type=$(grep "DESTINATION_CRED_TYPE=" "$INPUTS_FILE" | cut -d'=' -f2)
+    fi
 
     while true; do
         ORIGIN_HOST=$(get_input_with_default "Enter origin host" "ORIGIN_HOST")
@@ -274,18 +229,35 @@ get_input() {
         get_credential_type "Select origin credential type" "ORIGIN_CRED_TYPE"
         save_inputs
 
+        local fresh_start_option=""
+        if [ "$ORIGIN_CRED_TYPE" != "$prev_origin_cred_type" ] && [[ "$ORIGIN_CRED_TYPE" == ms-oauth2* ]]; then
+            fresh_start_option="--fresh-start"
+        fi
 
         case $ORIGIN_CRED_TYPE in
             "imaps")
-                read -s -p "Enter origin password: " origin_cred_value
-                echo
+                ORIGIN_SECRET=$(get_input_with_default "Enter origin password" "ORIGIN_SECRET")
+                origin_cred_value=$ORIGIN_SECRET
                 ;;
-            "ms-oauth2")
-                ORIGIN_CLIENT_ID=$(get_input_with_default "Enter client ID for origin OAuth2" "ORIGIN_CLIENT_ID")
+            "ms-oauth2-authorize-flow")
                 ORIGIN_TENANT_ID=$(get_input_with_default "Enter tenant ID for origin OAuth2" "ORIGIN_TENANT_ID")
+                ORIGIN_CLIENT_ID=$(get_input_with_default "Enter client ID for origin OAuth2" "ORIGIN_CLIENT_ID")
                 echo "Running OAuth2 script for origin..."
                 origin_cred_value=$(
-                    ./oauth2/ms.sh --client-id="$ORIGIN_CLIENT_ID" --tenant-id="$ORIGIN_TENANT_ID" --login="$ORIGIN_USER"
+                    ./oauth2/ms.sh --client-id="$ORIGIN_CLIENT_ID" --tenant-id="$ORIGIN_TENANT_ID" --store="$ORIGIN_OAUTH_STORE_TEMP" --login="$ORIGIN_USER" --user="$ORIGIN_USER" $fresh_start_option
+                )
+                if [ -z "$origin_cred_value" ]; then
+                    echo "Failed to obtain access token for origin."
+                    continue
+                fi
+                ;;
+            "ms-oauth2-client-credentials-flow")
+                ORIGIN_TENANT_ID=$(get_input_with_default "Enter tenant ID for origin OAuth2" "ORIGIN_TENANT_ID")
+                ORIGIN_CLIENT_ID=$(get_input_with_default "Enter client ID for origin OAuth2" "ORIGIN_CLIENT_ID")
+                ORIGIN_SECRET=$(get_input_with_default "Enter client secret for origin OAuth2" "ORIGIN_SECRET")
+                echo "Running OAuth2 script for origin..."
+                origin_cred_value=$(
+                    ./oauth2/ms.sh --client-id="$ORIGIN_CLIENT_ID" --client-secret="$ORIGIN_SECRET" --tenant-id="$ORIGIN_TENANT_ID" --user="$ORIGIN_USER" --store="$ORIGIN_OAUTH_STORE_TEMP" $fresh_start_option
                 )
                 if [ -z "$origin_cred_value" ]; then
                     echo "Failed to obtain access token for origin."
@@ -294,7 +266,7 @@ get_input() {
                 ;;
         esac
 
-        if check_imap_connection "$ORIGIN_HOST" "$ORIGIN_PORT" "$ORIGIN_USER" "$ORIGIN_CRED_TYPE" "$origin_cred_value" "$ORIGIN_CONN_TYPE"; then
+        if check_imap_connection "false" "$ORIGIN_HOST" "$ORIGIN_PORT" "$ORIGIN_USER" "$ORIGIN_CRED_TYPE" "$origin_cred_value" "$ORIGIN_CONN_TYPE"; then
             echo "IMAP connection to origin server successful."
             break
         else
@@ -314,17 +286,35 @@ get_input() {
         get_credential_type "Select destination credential type" "DESTINATION_CRED_TYPE"
         save_inputs
 
+        local fresh_start_option=""
+        if [ "$DESTINATION_CRED_TYPE" != "$prev_destination_cred_type" ] && [[ "$DESTINATION_CRED_TYPE" == ms-oauth2* ]]; then
+            fresh_start_option="--fresh-start"
+        fi
+
         case $DESTINATION_CRED_TYPE in
             "imaps")
-                read -s -p "Enter destination password: " destination_cred_value
-                echo
+                DESTINATION_SECRET=$(get_input_with_default "Enter destination password" "DESTINATION_SECRET")
+                destination_cred_value=$DESTINATION_SECRET
                 ;;
-            "ms-oauth2")
-                DESTINATION_CLIENT_ID=$(get_input_with_default "Enter client ID for destination OAuth2" "DESTINATION_CLIENT_ID")
+            "ms-oauth2-authorize-flow")
                 DESTINATION_TENANT_ID=$(get_input_with_default "Enter tenant ID for destination OAuth2" "DESTINATION_TENANT_ID")
+                DESTINATION_CLIENT_ID=$(get_input_with_default "Enter client ID for destination OAuth2" "DESTINATION_CLIENT_ID")
                 echo "Running OAuth2 script for destination..."
                 destination_cred_value=$(
-                    ./oauth2/ms.sh --client-id="$DESTINATION_CLIENT_ID" --tenant-id="$DESTINATION_TENANT_ID" --login="$DESTINATION_USER"
+                    ./oauth2/ms.sh --client-id="$DESTINATION_CLIENT_ID" --tenant-id="$DESTINATION_TENANT_ID" --login="$DESTINATION_USER" --user="$ORIGIN_USER" --store="$DESTINATION_OAUTH_STORE_TEMP" $fresh_start_option
+                )
+                if [ -z "$destination_cred_value" ]; then
+                    echo "Failed to obtain access token for destination."
+                    continue
+                fi
+                ;;
+            "ms-oauth2-client-credentials-flow")
+                DESTINATION_TENANT_ID=$(get_input_with_default "Enter tenant ID for destination OAuth2" "DESTINATION_TENANT_ID")
+                DESTINATION_CLIENT_ID=$(get_input_with_default "Enter client ID for destination OAuth2" "DESTINATION_CLIENT_ID")
+                DESTINATION_SECRET=$(get_input_with_default "Enter client secret for destination OAuth2" "DESTINATION_SECRET")
+                echo "Running OAuth2 script for destination..."
+                destination_cred_value=$(
+                    ./oauth2/ms.sh --client-id="$DESTINATION_CLIENT_ID" --client-secret="$DESTINATION_SECRET" --tenant-id="$DESTINATION_TENANT_ID" --user="$ORIGIN_USER" --store="$DESTINATION_OAUTH_STORE_TEMP" $fresh_start_option
                 )
                 if [ -z "$destination_cred_value" ]; then
                     echo "Failed to obtain access token for destination."
@@ -333,7 +323,7 @@ get_input() {
                 ;;
         esac
 
-        if check_imap_connection "$DESTINATION_HOST" "$DESTINATION_PORT" "$DESTINATION_USER" "$DESTINATION_CRED_TYPE" "$destination_cred_value" "$DESTINATION_CONN_TYPE"; then
+        if check_imap_connection "false" "$DESTINATION_HOST" "$DESTINATION_PORT" "$DESTINATION_USER" "$DESTINATION_CRED_TYPE" "$destination_cred_value" "$DESTINATION_CONN_TYPE"; then
             echo "IMAP connection to destination server successful."
             break
         else
@@ -354,15 +344,17 @@ get_input() {
 
     # Copy the setup.env file to the migration folder
     cp "$INPUTS_FILE" "./migrations/$folder_name/.env"
-
-    # Append a newline to .env file
-    echo "" >> ./migrations/$folder_name/.env
-
-    # Save secrets to the .env file
-    save_secret "ORIGIN_SECRET" "$origin_cred_value" "./migrations/$folder_name/.env"
-    save_secret "DESTINATION_SECRET" "$destination_cred_value" "./migrations/$folder_name/.env"
-
     echo "Configuration saved in ./migrations/$folder_name/.env"
+
+    # Copy oauth2 details
+    if [ -d "$DESTINATION_OAUTH_STORE_TEMP" ]; then
+        cp -r "$DESTINATION_OAUTH_STORE_TEMP" "./migrations/$folder_name/destination-oauth2"
+        echo "Destination oauth2 details successfully."
+    fi
+    if [ -d "$ORIGIN_OAUTH_STORE_TEMP" ]; then
+        cp -r "$ORIGIN_OAUTH_STORE_TEMP" "./migrations/$folder_name/origin-oauth2"
+        echo "Origin oauth2 details successfully."
+    fi
 }
 
 # Main execution
