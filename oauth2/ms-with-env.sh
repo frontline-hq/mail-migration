@@ -2,7 +2,8 @@
 
 # Function to display usage information
 usage() {
-    echo "Usage: $0 --client-id=<client_id> --tenant-id=<tenant_id> --user=<user> [additional OAuth2 options]"
+    echo "Usage: $0 --client-id=<client_id> --tenant-id=<tenant_id> --user=<user> --cred-type=<cred_type> [additional OAuth2 options]"
+    echo "cred_type can be: ms-oauth2-client-credentials-flow or ms-oauth2-authorize-flow"
     exit 1
 }
 
@@ -10,6 +11,8 @@ usage() {
 CLIENT_ID=""
 TENANT_ID=""
 USER=""
+CRED_TYPE=""
+STORE=""
 ADDITIONAL_ARGS=""
 
 for arg in "$@"
@@ -27,6 +30,14 @@ do
         USER="${arg#*=}"
         shift
         ;;
+        --cred-type=*)
+        CRED_TYPE="${arg#*=}"
+        shift
+        ;;
+        --store=*)
+        STORE="${arg#*=}"
+        shift
+        ;;
         *)
         ADDITIONAL_ARGS="$ADDITIONAL_ARGS $arg"
         ;;
@@ -34,26 +45,36 @@ do
 done
 
 # Check if required parameters are provided
-if [ -z "$CLIENT_ID" ] || [ -z "$TENANT_ID" ] || [ -z "$USER" ]; then
+if [ -z "$CLIENT_ID" ] || [ -z "$TENANT_ID" ] || [ -z "$USER" ] || [ -z "$CRED_TYPE" ]; then
     echo "Error: Missing required parameters."
     usage
 fi
 
+# Validate cred-type
+if [[ "$CRED_TYPE" != "ms-oauth2-client-credentials-flow" && "$CRED_TYPE" != "ms-oauth2-authorize-flow" ]]; then
+    echo "Error: Invalid cred-type. Must be 'ms-oauth2-client-credentials-flow' or 'ms-oauth2-authorize-flow'."
+    usage
+fi
+
 # Run OAuth2 refresh and capture its output (the raw access token)
-ACCESS_TOKEN=$(../../oauth2/ms.sh --client-id="$CLIENT_ID" --tenant-id="$TENANT_ID" --login="$USER" $ADDITIONAL_ARGS)
+ACCESS_TOKEN=$(../../oauth2/ms.sh --client-id="$CLIENT_ID" --tenant-id="$TENANT_ID" --user="$USER" --store="$STORE" $ADDITIONAL_ARGS)
 
 # Check if the OAuth2 refresh was successful
-if [ $? -ne 0 ] || [ -z "$ACCESS_TOKEN" ]; then
+if [ -z "$ACCESS_TOKEN" ]; then
     echo "OAuth2 refresh failed. Please check your credentials and try again."
     exit 1
 fi
 
-# Get the refresh token from the file
-REFRESH_TOKEN=$(cat ./oauth2/refresh_token)
+echo "OAuth2 refresh successful. Access token is available."
 
-if [ -z "$REFRESH_TOKEN" ]; then
-    echo "Failed to read refresh token from file."
-    exit 1
+# Only retrieve refresh token for ms-oauth2-authorize-flow
+if [ "$CRED_TYPE" == "ms-oauth2-authorize-flow" ]; then
+    REFRESH_TOKEN=$(cat ./oauth2/refresh_token)
+
+    if [ -z "$REFRESH_TOKEN" ]; then
+        echo "Failed to read refresh token from file."
+        exit 1
+    fi
+
+    echo "Refresh token is available."
 fi
-
-echo "OAuth2 refresh successful. Access token and refresh token are available."

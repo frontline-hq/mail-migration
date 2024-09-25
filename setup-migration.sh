@@ -21,8 +21,8 @@ generate_scripts() {
     fi
 
     # Copy template files, but don't overwrite.
-    cp -n "./imapsync/dry-run.template.sh" "./migrations/$folder/imapsync/dry-run.sh"
-    cp -n "./imapsync/run.template.sh" "./migrations/$folder/imapsync/run.sh"
+    cp "./imapsync/dry-run.template.sh" "./migrations/$folder/imapsync/dry-run.sh"
+    cp "./imapsync/run.template.sh" "./migrations/$folder/imapsync/run.sh"
 
     echo "Created ./migrations/$folder/imapsync/(dry-)run.sh migration scripts."
 }

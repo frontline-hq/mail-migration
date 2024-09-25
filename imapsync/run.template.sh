@@ -5,57 +5,48 @@ set -a
 source ./.env
 set +a
 
-# Function to perform OAuth2 refresh
-perform_oauth2() {
-    local client_id=$1
-    local tenant_id=$2
-    local user=$3
-    local output_file=$4
-    shift 4  # Shift past the known parameters
+source ../../oauth2/utils.sh
 
-    # Run ms-with-env.sh with the provided parameters and any additional args
-    source ../../oauth2/ms-with-env.sh --client-id="$client_id" --tenant-id="$tenant_id" --user="$user" "$@"
+# Path to the new script
+MS_WITH_ENV_SCRIPT="./oauth2/ms-with-env.sh"
+ORIGINAL_DIR="../../"
 
-    if [ $? -ne 0 ] || [ -z "$ACCESS_TOKEN" ]; then
-        echo "OAuth2 refresh failed for $user. Please check your credentials and try again."
-        exit 1
-    fi
-
-    if [ -z "$REFRESH_TOKEN" ]; then
-        echo "Failed to read refresh token for $user."
-        exit 1
-    fi
-
-    mkdir -p ./imapsync
-    {
-        echo "$ACCESS_TOKEN"
-        echo "$REFRESH_TOKEN"
-    } > "$output_file"
-}
+# Run for ORIGIN if variables are defined
+run_ms_oauth_on_env "ORIGIN"
 
 # Prepare origin connection parameters
 ORIGIN_PARAMS=""
-if [ "$ORIGIN_CRED_TYPE" = "oauth2" ]; then
-    perform_oauth2 "$ORIGIN_CLIENT_ID" "$ORIGIN_TENANT_ID" "$ORIGIN_USER" "./imapsync/oauthaccesstoken1.txt" --store="./oauth2/origin" $ORIGIN_OAUTH_EXTRA_ARGS
-    ORIGIN_PARAMS="--oauthaccesstoken1 ./imapsync/oauthaccesstoken1.txt"
-elif [ "$ORIGIN_CRED_TYPE" = "imaps" ]; then
-    ORIGIN_PARAMS="--password1 $ORIGIN_SECRET"
-else
-    echo "Unsupported origin credential type: $ORIGIN_CRED_TYPE"
-    exit 1
-fi
+case $ORIGIN_CRED_TYPE in
+    "imaps")
+        ORIGIN_PARAMS="--password1 $ORIGIN_SECRET"
+        ;;
+    "ms-oauth2-client-credentials-flow"|"ms-oauth2-authorize-flow")
+        ORIGIN_PARAMS="--oauthaccesstoken1 ./oauth2/origin/access_token"
+        ;;
+    *)
+        echo "Unsupported credential type: $ORIGIN_CRED_TYPE"
+        exit 1
+        ;;
+esac
 
-# Prepare destination connection parameters
+# Run for DESTINATION if variables are defined
+run_ms_oauth_on_env "DESTINATION"
+
+# Prepare origin connection parameters
 DESTINATION_PARAMS=""
-if [ "$DESTINATION_CRED_TYPE" = "oauth2" ]; then
-    perform_oauth2 "$DESTINATION_CLIENT_ID" "$DESTINATION_TENANT_ID" "$DESTINATION_USER" "./imapsync/oauthaccesstoken2.txt" --store="./oauth2/destination" $DESTINATION_OAUTH_EXTRA_ARGS
-    DESTINATION_PARAMS="--oauthaccesstoken2 ./imapsync/oauthaccesstoken2.txt"
-elif [ "$DESTINATION_CRED_TYPE" = "imaps" ]; then
-    DESTINATION_PARAMS="--password2 $DESTINATION_SECRET"
-else
-    echo "Unsupported destination credential type: $DESTINATION_CRED_TYPE"
-    exit 1
-fi
+case $DESTINATION_CRED_TYPE in
+    "imaps")
+        DESTINATION_PARAMS="--password2 $DESTINATION_SECRET"
+        ;;
+    "ms-oauth2-client-credentials-flow"|"ms-oauth2-authorize-flow")
+        DESTINATION_PARAMS="--oauthaccesstoken2 ./oauth2/destination/access_token"
+        ;;
+    *)
+        echo "Unsupported credential type: $DESTINATION_CRED_TYPE"
+        exit 1
+        ;;
+esac
+
 
 # Prepare TLS/SSL parameters
 if [ "$ORIGIN_CONN_TYPE" = "STARTTLS" ]; then

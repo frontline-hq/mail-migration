@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 #
 # SPDX-License-Identifier: GPL-2.0+
 #
@@ -60,27 +60,32 @@ function log_error {
 
 function usage {
     cat << EOF
-Usage: $0 --option=value ...
+Usage: $0 --client-id=<id> --tenant-id=<id> --user=<email> [options]
 
 Obtains MS OAuth2 tokens and caches them:
   Silently dumps the access token to stdout, even on initial authentication.
   Useful as 'PassCmd' commands for apps that require OAuth2 authentication
-  Example: $0 --client-id=123456789 --tenant-id=your-tenant-id
 
-Options:
-  --client-id      : Client ID (required)
-  --tenant-id      : Tenant ID (required)
-  --login          : Login Hint, optional (email)
+Required Options:
+  --client-id      : Client ID
+  --tenant-id      : Tenant ID
   --user           : User email for login hint
+
+Optional Options:
+  --client-secret  : Client Secret (enables client credentials flow)
   --scope          : Scope (default: $default_scope)
   --port           : Port (default: $default_port)
   --browser        : Browser (default: $default_browser)
   --store          : Directory to cache token files (default: $default_store)
-  --help           : This help
+  --fresh-start    : Purge the store directory before starting (optional)
   --debug          : Enable debug output
   --verbose        : Enable verbose output
+  --help           : Display this help message
 
 Output: access_token
+
+Example:
+  $0 --client-id=123456789 --tenant-id=your-tenant-id --user=user@example.com
 
 Note: This script requires jq to be installed.
 EOF
@@ -236,12 +241,15 @@ function get_access_token {
             log_debug "Valid access token found"
             log_debug "Returning access token"
             echo "$access_token"
+            return  # Success
         else
             log_debug "Access token has expired"
             log_debug "Current time ($current_time) is greater than or equal to expiry time ($expiry_time)"
+            return  # Failure
         fi
     else
         log_debug "No access token file found at $access_token_file"
+        return  # Failure
     fi
     log_debug "Exiting get_access_token function"
 }
@@ -250,6 +258,7 @@ function cleanup {
     log_debug "Cleaning up..."
     rm -f "$STORE/fifo"
     if [[ -n ${NC_PID:-} ]]; then
+        log_debug "Killing process..."
         kill -9 "$NC_PID" &> /dev/null || true
     fi
 
@@ -268,6 +277,7 @@ function cleanup {
             rm -f "$access_token_file"
         fi
     fi
+    log_debug "Cleaned up."
 }
 
 function get_refresh_token {
@@ -293,8 +303,8 @@ function fetch_auth_code {
     url+="&access_type=offline"
     
     # Add login_hint if LOGIN is provided
-    if [[ -n $LOGIN ]]; then
-        url+="&login_hint=$LOGIN"
+    if [[ -n $USER ]]; then
+        url+="&login_hint=$USER"
     fi
 
     log_info "Authorization URL: $url"
@@ -424,13 +434,84 @@ function refresh_access_token {
     return 0
 }
 
-# Main script starts here
+
+function client_credentials_flow {
+    log_debug "Entering client_credentials_flow function"
+    local data="client_id=$CLIENT_ID"
+    data+="&scope=https%3A%2F%2Foutlook.office365.com%2F.default"
+    data+="&client_secret=$CLIENT_SECRET"
+    data+="&grant_type=client_credentials"
+
+    local url="https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/token"
+    log_debug "Sending client credentials request to $url"
+    log_debug "Request data: $data"
+
+    local response
+    response=$(curl -s -X POST -H "Content-Type: application/x-www-form-urlencoded" --data "$data" "$url")
+    
+    log_debug "Response Body: $response"
+
+    if [[ -z $response ]]; then
+        log_error "Received empty response when fetching access token"
+        return 1
+    fi
+
+    if echo "$response" | jq -e '.error' > /dev/null; then
+        log_error "Error fetching token: $(echo "$response" | jq -r '.error_description')"
+        return 1
+    fi
+
+
+    local access_token
+    local expires_in
+    access_token=$(echo "$response" | jq -r '.access_token')
+    expires_in=$(echo "$response" | jq -r '.expires_in')
+    if [[ -n $access_token && -n $expires_in ]]; then
+        store_token "access_token" "$access_token" "$expires_in"
+    else
+        log_error "No access token or expiry time found in response"
+        return 1
+    fi
+
+    log_debug "Exiting refresh_access_token function"
+
+    local access_token
+    access_token=$(echo "$response" | jq -r '.access_token')
+    if [[ -n $access_token ]]; then
+        echo "$access_token"
+        return 0
+    else
+        log_error "No access token found in response"
+        return 1
+    fi
+}
+
+function purge_store {
+    log_debug "Purging store directory: $STORE"
+    if [[ -d "$STORE" ]]; then
+        rm -rf "${STORE:?}"/*
+        log_info "Store directory purged: $STORE"
+    else
+        log_info "Store directory does not exist: $STORE"
+    fi
+}
+
+generate_oauth2_auth_string() {
+    local user=$1
+    local access_token=$2
+    local base64_string=$(printf "user=%s\1auth=Bearer %s\1\1" "$user" "$access_token" | base64 | tr -d '\n')
+    echo "A1 AUTHENTICATE XOAUTH2 $base64_string"
+}
+
+# Parse command line arguments
 ALL_ARGS=$*
 
 [[ $# -eq 0 ]] && usage && exit 1
 
 CLIENT_ID=$(get_arg client-id)
 TENANT_ID=$(get_arg tenant-id)
+USER=$(get_arg user)
+CLIENT_SECRET=$(get_arg client-secret)
 LPORT=$(get_arg port)
 LPORT=${LPORT:-$default_port}
 STORE=$(get_arg store)
@@ -439,7 +520,6 @@ BROWSER=$(get_arg browser)
 BROWSER=${BROWSER:-$default_browser}
 SCOPE=$(get_arg scope)
 SCOPE=${SCOPE:-$default_scope}
-LOGIN=$(get_arg login)  # Using the existing login option
 
 if [[ $ALL_ARGS == *"--debug"* ]]; then
     DEBUG=true
@@ -447,6 +527,8 @@ if [[ $ALL_ARGS == *"--debug"* ]]; then
 elif [[ $ALL_ARGS == *"--verbose"* ]]; then
     VERBOSE=true
 fi
+
+# Main script starts here
 function main {
     log_debug "Script started with arguments: $ALL_ARGS"
 
@@ -460,7 +542,15 @@ function main {
         exit 1
     fi
 
-    redirect_uri="http://localhost:${LPORT}"
+    if [[ -z $USER ]]; then
+        log_error "Missing required argument: user"
+        exit 1
+    fi
+
+    # Check for --fresh-start option
+    if [[ $ALL_ARGS == *"--fresh-start"* ]]; then
+        purge_store
+    fi
 
     log_debug "Creating store directory: $STORE"
     mkdir -p "$STORE"
@@ -468,30 +558,49 @@ function main {
 
     log_debug "Checking for existing access token"
     access_token=$(get_access_token)
+    log_debug "Restored access token ${access_token}"
 
     if [[ -z $access_token ]]; then
-        log_debug "No valid access token found, attempting to refresh"
-        if ! refresh_access_token; then
-            log_debug "Failed to refresh token, initiating new authentication flow"
-            if ! fetch_auth_code; then
-                log_error "Failed to fetch auth code"
+        log_debug "Access token undefined. Attempting refresh..."
+        if [[ -n $CLIENT_SECRET ]]; then
+            log_debug "Client secret provided, using client credentials flow."
+            access_token=$(client_credentials_flow)
+            if [[ -n $access_token ]]; then
+                echo -e $(generate_oauth2_auth_string "$USER" "$access_token") > "$STORE/imap_auth_command.txt"
+                echo "$access_token"
+                exit 0
+            else
+                log_error "Failed to obtain access token using client credentials flow"
                 exit 1
             fi
-            if ! fetch_refresh_token; then
-                log_error "Failed to fetch refresh token"
+        else
+            redirect_uri="http://localhost:${LPORT}"
+            log_debug "Client secret not provided, using authorize flow"
+            if ! refresh_access_token; then
+                log_debug "Failed to refresh token, initiating new authentication flow"
+                if ! fetch_auth_code; then
+                    log_error "Failed to fetch auth code"
+                    exit 1
+                fi
+                if ! fetch_refresh_token; then
+                    log_error "Failed to fetch refresh token"
+                    exit 1
+                fi
+            fi
+            access_token=$(get_access_token)
+            if [[ -n $access_token ]]; then
+                log_debug "Successfully obtained access token"
+                echo -e $(generate_oauth2_auth_string "$USER" "$access_token") > "$STORE/imap_auth_command.txt"
+                echo "$access_token"
+                exit 0
+            else
+                log_error "Failed to obtain access token"
                 exit 1
             fi
         fi
-        access_token=$(get_access_token)
-    fi
-
-    if [[ -n $access_token ]]; then
-        log_debug "Successfully obtained access token"
-        echo "$access_token"
-        exit 0
     else
-        log_error "Failed to obtain access token"
-        exit 1
+        echo $access_token
+        exit 0
     fi
 }
 

@@ -9,8 +9,15 @@ if [ ! -f "$MS_WITH_ENV_SCRIPT" ]; then
     exit 1
 fi
 
+# Use like this: $(indirect_expand "${BEGINNING_VAR_STRING}_VAR_ENDING")
+indirect_expand() {
+  eval echo \$${1}
+}
+
 # Store the original directory
 ORIGINAL_DIR=$(pwd)
+
+source ./oauth2/utils.sh
 
 # Iterate through each subfolder in the migrations directory
 for migration_folder in ./migrations/*/; do
@@ -24,8 +31,11 @@ for migration_folder in ./migrations/*/; do
         # Source the environment variables
         source ".env"
         
-        # Run the ms-with-env.sh script with the sourced environment variables
-        bash "$ORIGINAL_DIR/$MS_WITH_ENV_SCRIPT" "$@"
+        # Run for ORIGIN if variables are defined
+        run_ms_oauth_on_env "ORIGIN"
+        
+        # Run for DESTINATION if variables are defined
+        run_ms_oauth_on_env "DESTINATION"
         
         # Change back to the original directory
         cd "$ORIGINAL_DIR" || exit
