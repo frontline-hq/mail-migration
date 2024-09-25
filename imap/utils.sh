@@ -103,7 +103,7 @@ check_imap_connection() {
         "imaps")
             check_imap_connection_password "$debug" "$host" "$port" "$user" "$cred_value" "$conn_type"
             ;;
-        "ms-oauth2"|"ms-oauth2-client-credentials-flow"|"ms-oauth2-authorize-flow")
+        "ms-oauth2-client-credentials-flow"|"ms-oauth2-authorize-flow")
             check_imap_connection_oauth2 "$debug" "$host" "$port" "$user" "$cred_value" "$conn_type"
             ;;
         *)

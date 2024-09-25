@@ -17,37 +17,7 @@ indirect_expand() {
 # Store the original directory
 ORIGINAL_DIR=$(pwd)
 
-# Function to run the script if variables are defined
-run_script_if_defined() {
-    local prefix=$1
-    shift  # Remove the first argument (prefix) to pass the rest to the script
-    
-    local client_id=$(indirect_expand "${prefix}_CLIENT_ID")
-    local tenant_id=$(indirect_expand "${prefix}_TENANT_ID")
-    local user=$(indirect_expand "${prefix}_USER")
-    
-    if [ -n "$client_id" ] && [ -n "$tenant_id" ] && [ -n "$user" ]; then
-        echo "Running for ${prefix}..."
-        
-        local cmd="$ORIGINAL_DIR/$MS_WITH_ENV_SCRIPT"
-        cmd+=" --client-id=$client_id"
-        cmd+=" --tenant-id=$tenant_id"
-        cmd+=" --user=$user"
-        
-        # Check if CLIENT_SECRET is defined, otherwise use USER
-        local client_secret=$(indirect_expand "${prefix}_CLIENT_SECRET")
-        
-        if [ -n "$client_secret" ]; then
-            cmd+=" --client-secret=$client_secret"
-        fi
-        
-        # Add any additional arguments passed to the function
-        cmd+=" $@"
-        
-        # Execute the command
-        eval "$cmd"
-    fi
-}
+source ./oauth2/utils.sh
 
 # Iterate through each subfolder in the migrations directory
 for migration_folder in ./migrations/*/; do
@@ -62,10 +32,10 @@ for migration_folder in ./migrations/*/; do
         source ".env"
         
         # Run for ORIGIN if variables are defined
-        run_script_if_defined "ORIGIN" "$@"
+        run_ms_oauth_on_env "ORIGIN"
         
         # Run for DESTINATION if variables are defined
-        run_script_if_defined "DESTINATION" "$@"
+        run_ms_oauth_on_env "DESTINATION"
         
         # Change back to the original directory
         cd "$ORIGINAL_DIR" || exit

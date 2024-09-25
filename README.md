@@ -45,7 +45,7 @@ On Mac OS these are available via homebrew:
 
 When migrating to microsoft oauth2, please make sure you have the following set up (depending on your flow!!):
 
-#### /authorize flow
+#### authorize flow
 
 -   IMAP App enabled in Exchange Admin Portal
 -   A "Mobile and desktop applications" (!!) App named "imapsync" created in Azure AD, with the following specs:
@@ -54,13 +54,14 @@ When migrating to microsoft oauth2, please make sure you have the following set 
     -   Of type: Mobile and desktop applications
     -   redirect url: http://localhost:8087
 
-#### /client-credentials flow
+#### client credentials flow
 
 -   IMAP App enabled in Exchange Admin Portal
 -   A "Mobile and desktop applications" (!!) App named "imapsync" created in Azure AD, with the following specs:
     -   Permissions -> Office 365 Exchange Online -> IMAP.AccessAsApp
     -   Grant admin consent on permissions!
     -   Of type: Mobile and desktop applications
+-   Run the `./pwsh/prepare-tenant.ps1` script to prepare the tenant: `pwsh -File ./pwsh/prepare-tenant.ps1` (You can find the service principal application and object id in `Microsoft Entra admin center -> Applications -> Enterprise applications -> <your-app-name> -> Overview -> Properties`)
 
 ## Get Started
 
@@ -68,6 +69,10 @@ First, you will need to clone this repo.
 We recommend that you do this for every new migration project!
 
 ## Instructions
+
+**0. Take care of prerequisites**
+
+I.e. if you are using microsoft client credentials flow, make sure that the corresponding tenant(s) are correctly set up using our instructions and the powershell script.
 
 **1. Run setup**
 

@@ -348,11 +348,11 @@ get_input() {
 
     # Copy oauth2 details
     if [ -d "$DESTINATION_OAUTH_STORE_TEMP" ]; then
-        cp -r "$DESTINATION_OAUTH_STORE_TEMP" "./migrations/$folder_name/destination-oauth2"
+        cp -r "$DESTINATION_OAUTH_STORE_TEMP" "./migrations/$folder_name/oauth2/destination"
         echo "Destination oauth2 details successfully."
     fi
     if [ -d "$ORIGIN_OAUTH_STORE_TEMP" ]; then
-        cp -r "$ORIGIN_OAUTH_STORE_TEMP" "./migrations/$folder_name/origin-oauth2"
+        cp -r "$ORIGIN_OAUTH_STORE_TEMP" "./migrations/$folder_name/oauth2/destination"
         echo "Origin oauth2 details successfully."
     fi
 }

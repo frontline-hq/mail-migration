@@ -241,12 +241,15 @@ function get_access_token {
             log_debug "Valid access token found"
             log_debug "Returning access token"
             echo "$access_token"
+            return  # Success
         else
             log_debug "Access token has expired"
             log_debug "Current time ($current_time) is greater than or equal to expiry time ($expiry_time)"
+            return  # Failure
         fi
     else
         log_debug "No access token file found at $access_token_file"
+        return  # Failure
     fi
     log_debug "Exiting get_access_token function"
 }
@@ -255,6 +258,7 @@ function cleanup {
     log_debug "Cleaning up..."
     rm -f "$STORE/fifo"
     if [[ -n ${NC_PID:-} ]]; then
+        log_debug "Killing process..."
         kill -9 "$NC_PID" &> /dev/null || true
     fi
 
@@ -273,6 +277,7 @@ function cleanup {
             rm -f "$access_token_file"
         fi
     fi
+    log_debug "Cleaned up."
 }
 
 function get_refresh_token {
@@ -506,6 +511,7 @@ ALL_ARGS=$*
 CLIENT_ID=$(get_arg client-id)
 TENANT_ID=$(get_arg tenant-id)
 USER=$(get_arg user)
+CLIENT_SECRET=$(get_arg client-secret)
 LPORT=$(get_arg port)
 LPORT=${LPORT:-$default_port}
 STORE=$(get_arg store)
@@ -541,8 +547,6 @@ function main {
         exit 1
     fi
 
-    CLIENT_SECRET=$(get_arg client-secret)
-
     # Check for --fresh-start option
     if [[ $ALL_ARGS == *"--fresh-start"* ]]; then
         purge_store
@@ -554,10 +558,12 @@ function main {
 
     log_debug "Checking for existing access token"
     access_token=$(get_access_token)
+    log_debug "Restored access token ${access_token}"
 
-    if [[ -n $CLIENT_SECRET ]]; then
-        if [[ -z $access_token ]]; then
-            log_debug "Client secret provided, using client credentials flow"
+    if [[ -z $access_token ]]; then
+        log_debug "Access token undefined. Attempting refresh..."
+        if [[ -n $CLIENT_SECRET ]]; then
+            log_debug "Client secret provided, using client credentials flow."
             access_token=$(client_credentials_flow)
             if [[ -n $access_token ]]; then
                 echo -e $(generate_oauth2_auth_string "$USER" "$access_token") > "$STORE/imap_auth_command.txt"
@@ -567,12 +573,9 @@ function main {
                 log_error "Failed to obtain access token using client credentials flow"
                 exit 1
             fi
-        fi
-    else
-        redirect_uri="http://localhost:${LPORT}"
-
-        if [[ -z $access_token ]]; then
-            log_debug "No valid access token found, attempting to refresh"
+        else
+            redirect_uri="http://localhost:${LPORT}"
+            log_debug "Client secret not provided, using authorize flow"
             if ! refresh_access_token; then
                 log_debug "Failed to refresh token, initiating new authentication flow"
                 if ! fetch_auth_code; then
@@ -585,17 +588,19 @@ function main {
                 fi
             fi
             access_token=$(get_access_token)
+            if [[ -n $access_token ]]; then
+                log_debug "Successfully obtained access token"
+                echo -e $(generate_oauth2_auth_string "$USER" "$access_token") > "$STORE/imap_auth_command.txt"
+                echo "$access_token"
+                exit 0
+            else
+                log_error "Failed to obtain access token"
+                exit 1
+            fi
         fi
-
-        if [[ -n $access_token ]]; then
-            log_debug "Successfully obtained access token"
-            echo -e $(generate_oauth2_auth_string "$USER" "$access_token") > "$STORE/imap_auth_command.txt"
-            echo "$access_token"
-            exit 0
-        else
-            log_error "Failed to obtain access token"
-            exit 1
-        fi
+    else
+        echo $access_token
+        exit 0
     fi
 }
 
